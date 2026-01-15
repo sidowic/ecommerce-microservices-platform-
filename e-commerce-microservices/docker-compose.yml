@@ -1,0 +1,166 @@
+version: '3.8'
+
+services:
+  # Databases
+  mongo:
+    image: mongo:7
+    container_name: ecommerce-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - ecommerce-network
+
+  postgres:
+    image: postgres:16
+    container_name: ecommerce-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: authdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ecommerce-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - ecommerce-network
+
+  # Backend Microservices
+  product-service:
+    build: ./services/product-service
+    container_name: product-service
+    ports:
+      - "5001:5001"
+    environment:
+      - PORT=5001
+      - MONGODB_URI=mongodb://mongo:27017/products
+      - NODE_ENV=production
+    depends_on:
+      - mongo
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  auth-service:
+    build: ./services/auth-service
+    container_name: auth-service
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=postgres
+      - DB_NAME=authdb
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_PORT=5432
+      - SECRET_KEY=your-secret-key-change-in-production
+    depends_on:
+      - postgres
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  order-service:
+    build: ./services/order-service
+    container_name: order-service
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - DATABASE_URI=sqlite:///orders.db
+      - DEBUG=False
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  payment-service:
+    build: ./services/payment-service
+    container_name: payment-service
+    ports:
+      - "3001:3001"
+    environment:
+      - RAILS_ENV=production
+      - DB_HOST=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+    depends_on:
+      - postgres
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  chat-service:
+    build: ./services/chat-service
+    container_name: chat-service
+    ports:
+      - "5003:5003"
+    environment:
+      - PORT=5003
+      - NODE_ENV=production
+    depends_on:
+      - redis
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  # Frontend Applications
+  react-store:
+    build: ./frontends/react-store
+    container_name: react-store
+    ports:
+      - "3000:80"
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  angular-admin:
+    build: ./frontends/angular-admin
+    container_name: angular-admin
+    ports:
+      - "4200:80"
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  vue-seller:
+    build: ./frontends/vue-seller
+    container_name: vue-seller
+    ports:
+      - "8080:80"
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+  # API Gateway
+  api-gateway:
+    image: nginx:alpine
+    container_name: api-gateway
+    ports:
+      - "80:80"
+    volumes:
+      - ./api-gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - product-service
+      - auth-service
+      - order-service
+      - payment-service
+      - chat-service
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+networks:
+  ecommerce-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  postgres-data:
